@@ -143,8 +143,7 @@
         try { data = JSON.parse(raw); }
         catch { throw new Error("Réponse non JSON : " + raw); }
 
-        if (!res.ok) throw new Error(data.response || "Erreur serveur");
-
+        if (!res.ok) throw new Error(data.reply || data.response || "Erreur serveur");
         messages.innerHTML += `<div class="msg bot">${data.reply || data.response || "..."}</div>`;
         status.textContent = "";
 

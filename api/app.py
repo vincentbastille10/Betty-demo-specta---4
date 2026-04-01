@@ -68,7 +68,7 @@ def chat():
                 "model":       LLM_MODEL,
                 "messages":    messages,
                 "temperature": 0.7,
-                "max_tokens":  220,
+                "max_tokens":  400,
             },
             timeout=30,
         )

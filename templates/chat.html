@@ -36,7 +36,6 @@
       width: 320px;
       height: 320px;
       object-fit: cover;
-      border-radius: 0;
       display: block;
     }
 
@@ -53,6 +52,13 @@
       font-size: 18px;
       word-wrap: break-word;
       white-space: pre-wrap;
+    }
+
+    .msg a {
+      display: inline-block;
+      margin-top: 6px;
+      color: #a78bfa;
+      text-decoration: underline;
     }
 
     .user { text-align: right; color: #ffffff; }
@@ -118,6 +124,14 @@
   </div>
 
   <script>
+    // 🔥 Fonction pour rendre les liens cliquables
+    function formatMessage(text) {
+      const urlRegex = /(https?:\/\/[^\s]+)/g;
+      return text.replace(urlRegex, url => {
+        return `<a href="${url}" target="_blank">${url}</a>`;
+      });
+    }
+
     async function send() {
       const input    = document.getElementById("input");
       const messages = document.getElementById("messages");
@@ -144,7 +158,8 @@
         catch { throw new Error("Réponse non JSON : " + raw); }
 
         if (!res.ok) throw new Error(data.reply || data.response || "Erreur serveur");
-        messages.innerHTML += `<div class="msg bot">${data.reply || data.response || "..."}</div>`;
+
+        messages.innerHTML += `<div class="msg bot">${formatMessage(data.response)}</div>`;
         status.textContent = "";
 
       } catch (e) {

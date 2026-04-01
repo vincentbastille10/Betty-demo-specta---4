@@ -72,8 +72,16 @@ def chat():
             timeout=30,
         )
         response.raise_for_status()
-        reply = response.json()["choices"][0]["message"]["content"].strip()
+        data = response.json()
 
+    try:
+        reply = data["choices"][0]["message"]["content"].strip()
+    except:
+    try:
+        reply = data["choices"][0]["text"].strip()
+    except:
+        print("FORMAT INATTENDU :", data)
+        reply = "Je rencontre un souci temporaire 🙂"
     except requests.exceptions.HTTPError as e:
         print("ERREUR TOGETHER HTTP :", e, response.text[:300])
         reply = "Petit souci côté IA. Réessayez dans un instant 🙂"

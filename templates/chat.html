@@ -145,7 +145,7 @@
 
         if (!res.ok) throw new Error(data.response || "Erreur serveur");
 
-        messages.innerHTML += `<div class="msg bot">${data.response}</div>`;
+        messages.innerHTML += `<div class="msg bot">${data.reply || data.response || "..."}</div>`;
         status.textContent = "";
 
       } catch (e) {

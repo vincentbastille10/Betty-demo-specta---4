@@ -126,9 +126,13 @@
   <script>
     // 🔥 Fonction pour rendre les liens cliquables
     function formatMessage(text) {
-      const urlRegex = /(https?:\/\/[^\s]+)/g;
+      const urlRegex = /(https?:\/\/[^\s<]+)/g;
+
       return text.replace(urlRegex, url => {
-        return `<a href="${url}" target="_blank">${url}</a>`;
+        // 🔥 Nettoyage des caractères parasites à la fin
+        const cleanUrl = url.replace(/[>.,)]+$/, "");
+
+        return `<a href="${cleanUrl}" target="_blank">${cleanUrl}</a>`;
       });
     }
 

@@ -33,14 +33,15 @@
     }
 
     .avatar-wrap img {
-      width: 320px;
-      height: 320px;
+      width: 160px;
+      height: 160px;
       object-fit: cover;
+      border-radius: 8px;
       display: block;
     }
 
     .messages {
-      height: 400px;
+      height: 260px;
       overflow-y: auto;
       margin-bottom: 10px;
       padding-right: 4px;
@@ -49,7 +50,7 @@
     .msg {
       margin: 8px 0;
       line-height: 1.4;
-      font-size: 18px;
+      font-size: 15px;
       word-wrap: break-word;
       white-space: pre-wrap;
     }
@@ -96,11 +97,11 @@
     }
 
     @media (max-width: 768px) {
-      body { padding: 16px; }
+      body { padding: 10px; }
       .chat { width: 100%; }
-      .avatar-wrap img { width: 220px; height: 220px; }
-      .messages { height: 320px; }
-      .msg { font-size: 16px; }
+      .avatar-wrap img { width: 120px; height: 120px; }
+      .messages { height: 220px; }
+      .msg { font-size: 14px; }
     }
   </style>
 </head>

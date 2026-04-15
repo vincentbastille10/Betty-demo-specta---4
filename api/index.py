@@ -28,6 +28,50 @@ def debug():
         "file":        os.path.abspath(__file__)
     })
 
+@app.route("/api/chat-test")
+def chat_test():
+    """Route GET pour tester l'API directement depuis le navigateur."""
+    try:
+        pack          = load_pack()
+        system_prompt = pack.get("prompt", "")[:100]  # 100 premiers chars pour debug
+    except Exception as e:
+        return jsonify({"step": "load_pack", "error": str(e)}), 500
+
+    api_key    = os.environ.get("TOGETHER_API_KEY", "")
+    model      = os.environ.get("LLM_MODEL", "mistralai/Mixtral-8x7B-Instruct-v0.1")
+    max_tokens = int(os.environ.get("LLM_MAX_TOKENS", "512"))
+
+    if not api_key:
+        return jsonify({"step": "api_key", "error": "TOGETHER_API_KEY manquante"}), 500
+
+    try:
+        resp = requests.post(
+            "https://api.together.xyz/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "model": model,
+                "max_tokens": max_tokens,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": "Dis juste 'OK' pour confirmer que tu fonctionnes."}
+                ]
+            },
+            timeout=25
+        )
+    except Exception as e:
+        return jsonify({"step": "http_call", "error": str(e)}), 500
+
+    if not resp.ok:
+        return jsonify({"step": "together_error", "status": resp.status_code, "detail": resp.text}), 502
+
+    try:
+        result = resp.json()
+        reply  = result["choices"][0]["message"]["content"]
+        return jsonify({"ok": True, "reply": reply, "model": model})
+    except Exception as e:
+        return jsonify({"step": "parse", "error": str(e), "raw": resp.text[:500]}), 500
+
+
 @app.route("/api/chat", methods=["POST"])
 def chat():
     try:

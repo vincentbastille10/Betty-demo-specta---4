@@ -91,8 +91,7 @@ def chat():
                 reply = "Je rencontre un souci temporaire 🙂"
 
     except requests.exceptions.HTTPError as e:
-        print(f"[ERREUR HTTP] {e} | Body: {response.text[:300]}")
-        reply = f"DEBUG MODEL={LLM_MODEL} | HTTP={response.status_code}"
+        reply = f"DEBUG MODEL={LLM_MODEL} | HTTP={response.status_code} | BODY={response.text[:500]}"
         
     except requests.exceptions.Timeout:
         print("[ERREUR] Timeout Together AI")

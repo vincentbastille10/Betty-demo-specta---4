@@ -16,6 +16,18 @@ def load_pack():
 def test():
     return jsonify({"ok": True})
 
+@app.route("/api/debug")
+def debug():
+    pack_exists = os.path.exists(PACK_PATH)
+    api_key_set = bool(os.environ.get("ANTHROPIC_API_KEY", ""))
+    return jsonify({
+        "pack_path": PACK_PATH,
+        "pack_exists": pack_exists,
+        "api_key_set": api_key_set,
+        "cwd": os.getcwd(),
+        "file": os.path.abspath(__file__)
+    })
+
 @app.route("/api/chat", methods=["POST"])
 def chat():
     data = request.get_json(silent=True) or {}

@@ -18,7 +18,7 @@ app = Flask(
 # ─── Config LLM ────────────────────────────────────────────────────
 TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY", "").strip()
 TOGETHER_API_URL = "https://api.together.xyz/v1/chat/completions"
-LLM_MODEL = "mistralai/Mixtral-8x7B-Instruct-v0.1"   # ✅ slug corrigé
+LLM_MODEL = "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"  # ✅ slug corrigé
 
 # ─── Chargement YAML ───────────────────────────────────────────────
 YAML_PATH = os.path.join(BASE_DIR, "pack", "betty_spectra.yaml")

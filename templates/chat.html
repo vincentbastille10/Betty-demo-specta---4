@@ -141,10 +141,10 @@
       const messages = document.getElementById("messages");
       const status   = document.getElementById("status");
 
-      const text = input.value.trim();
-      if (!text) return;
+      const message = input.value.trim();
+      if (!message) return;
 
-      messages.innerHTML += `<div class="msg user">${text}</div>`;
+      messages.innerHTML += `<div class="msg user">${message}</div>`;
       input.value = "";
       status.textContent = "Betty réfléchit…";
       messages.scrollTop = messages.scrollHeight;
@@ -153,7 +153,7 @@
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: text })
+          body: JSON.stringify({ message })
         });
 
         const raw = await res.text();

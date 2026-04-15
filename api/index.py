@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from flask import send_file
 
 app = Flask(__name__)
 
@@ -89,4 +90,8 @@ def chat():
     })
 
 
+
+@app.route("/")
+def serve_ui():
+    return send_file("chat.html")
 

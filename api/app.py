@@ -65,13 +65,20 @@ def chat():
                 "Content-Type":  "application/json",
             },
             json={
-                "model":       LLM_MODEL,
-                "messages":    messages,
+                "model": MODEL,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": SYSTEM_PROMPT
+                    },
+                    {
+                        "role": "user",
+                        "content": message
+                    }
+                ],
                 "temperature": 0.7,
-                "max_tokens":  400,
-            },
-            timeout=30,
-        )
+                "max_tokens": 200
+            }
         print("[DEBUG] MODEL:", LLM_MODEL)
         print("[DEBUG] TOGETHER BODY:", response.text[:500])
         # ✅ Log du statut HTTP pour debug

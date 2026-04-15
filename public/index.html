@@ -125,15 +125,17 @@
   </div>
 
   <script>
-    // 🔥 Fonction pour rendre les liens cliquables
+    // Historique de la conversation pour le contexte multi-tours
+    const history = [];
+
     function formatMessage(text) {
-      const urlRegex = /(https?:\/\/[^\s<]+)/g;
-
-      return text.replace(urlRegex, url => {
-        // 🔥 Nettoyage des caractères parasites à la fin
-        const cleanUrl = url.replace(/[>.,)]+$/, "");
-
-        return `<a href="${cleanUrl}" target="_blank">${cleanUrl}</a>`;
+      const escaped = text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      return escaped.replace(/(https?:\/\/[^\s<]+)/g, url => {
+        const clean = url.replace(/[>.,)&]+$/, "");
+        return `<a href="${clean}" target="_blank" rel="noopener">${clean}</a>`;
       });
     }
 
@@ -145,8 +147,11 @@
       const message = input.value.trim();
       if (!message) return;
 
-      messages.innerHTML += `<div class="msg user">${message}</div>`;
+      // Affiche le message utilisateur
+      messages.innerHTML += `<div class="msg user">${formatMessage(message)}</div>`;
       input.value = "";
+      input.disabled = true;
+      document.getElementById("send").disabled = true;
       status.textContent = "Betty réfléchit…";
       messages.scrollTop = messages.scrollHeight;
 
@@ -154,7 +159,7 @@
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message })
+          body: JSON.stringify({ message, history })
         });
 
         const raw = await res.text();
@@ -162,17 +167,33 @@
         try { data = JSON.parse(raw); }
         catch { throw new Error("Réponse non JSON : " + raw); }
 
-        if (!res.ok) throw new Error(data.error || data.detail || data.reply || data.response || "Erreur serveur " + res.status);
+        if (!res.ok) throw new Error(data.error || data.detail || "Erreur " + res.status);
 
-        messages.innerHTML += `<div class="msg bot">${formatMessage(data.response)}</div>`;
-        status.textContent = "";
+        const reply = data.response || "";
+
+        // Ajoute à l'historique
+        history.push({ role: "user",      content: message });
+        history.push({ role: "assistant", content: reply   });
+
+        // Affiche la réponse
+        messages.innerHTML += `<div class="msg bot">${formatMessage(reply)}</div>`;
+
+        // Indicateur discret si lead capté
+        if (data.lead_captured) {
+          status.textContent = "✅ Vos coordonnées ont bien été transmises.";
+        } else {
+          status.textContent = "";
+        }
 
       } catch (e) {
         console.error("Erreur chat :", e);
-        messages.innerHTML += `<div class="msg bot">Petit souci technique…</div>`;
+        messages.innerHTML += `<div class="msg bot">Petit souci technique… réessayez dans un instant.</div>`;
         status.textContent = String(e.message || e);
       }
 
+      input.disabled = false;
+      document.getElementById("send").disabled = false;
+      input.focus();
       messages.scrollTop = messages.scrollHeight;
     }
 

@@ -1,11 +1,12 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "routes": [
     {
-      "src": "/api/chat",
+      "src": "^/api/chat$",
       "dest": "/api/chat.py"
     },
     {
-      "src": "/(.*)",
+      "src": "^/(.*)$",
       "dest": "/chat.html"
     }
   ]

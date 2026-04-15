@@ -91,9 +91,7 @@ def chat():
                 reply = "Je rencontre un souci temporaire 🙂"
 
     except requests.exceptions.HTTPError as e:
-        # ✅ Log détaillé pour identifier 401 / 422 / 429 etc.
-        print(f"[ERREUR HTTP] {e} | Body: {response.text[:300]}")
-        reply = f"Erreur API ({response.status_code}) — vérifiez les logs serveur."
+        reply = f"DEBUG Together {response.status_code} | {response.text[:500]}"
 
     except requests.exceptions.Timeout:
         print("[ERREUR] Timeout Together AI")

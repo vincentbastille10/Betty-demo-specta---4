@@ -1,8 +1,0 @@
-{
-  "routes": [
-    { "src": "/api/chat", "dest": "/api/index.py" },
-    { "src": "/static/(.*)", "dest": "/static/$1" },
-    { "src": "/chat", "dest": "/chat.html" },
-    { "src": "/", "dest": "/index.html" }
-  ]
-}

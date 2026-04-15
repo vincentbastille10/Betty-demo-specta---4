@@ -92,8 +92,8 @@ def chat():
 
     except requests.exceptions.HTTPError as e:
         print(f"[ERREUR HTTP] {e} | Body: {response.text[:300]}")
-        reply = f"Erreur API ({response.status_code}) — vérifiez les logs serveur."
-
+        reply = f"DEBUG MODEL={LLM_MODEL} | HTTP={response.status_code}"
+        
     except requests.exceptions.Timeout:
         print("[ERREUR] Timeout Together AI")
         reply = "L'IA met trop de temps à répondre. Réessayez 🙂"

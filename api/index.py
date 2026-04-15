@@ -19,11 +19,13 @@ def test():
 @app.route("/api/debug")
 def debug():
     pack_exists = os.path.exists(PACK_PATH)
-    api_key_set = bool(os.environ.get("ANTHROPIC_API_KEY", ""))
+    api_key_set = bool(os.environ.get("TOGETHER_API_KEY", ""))
     return jsonify({
         "pack_path": PACK_PATH,
         "pack_exists": pack_exists,
         "api_key_set": api_key_set,
+        "model": os.environ.get("LLM_MODEL", "(non défini)"),
+        "max_tokens": os.environ.get("LLM_MAX_TOKENS", "(non défini)"),
         "cwd": os.getcwd(),
         "file": os.path.abspath(__file__)
     })
@@ -38,24 +40,28 @@ def chat():
 
     pack = load_pack()
     system_prompt = pack.get("prompt", "")
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+
+    api_key   = os.environ.get("TOGETHER_API_KEY", "")
+    model     = os.environ.get("LLM_MODEL", "mistralai/Mixtral-8x7B-Instruct-v0.1")
+    max_tokens = int(os.environ.get("LLM_MAX_TOKENS", "512"))
 
     if not api_key:
-        return jsonify({"error": "ANTHROPIC_API_KEY manquante"}), 500
+        return jsonify({"error": "TOGETHER_API_KEY manquante"}), 500
 
     try:
         resp = requests.post(
-            "https://api.anthropic.com/v1/messages",
+            "https://api.together.xyz/v1/chat/completions",
             headers={
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json"
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
             },
             json={
-                "model": "claude-haiku-4-5-20251001",
-                "max_tokens": 512,
-                "system": system_prompt,
-                "messages": [{"role": "user", "content": message}]
+                "model": model,
+                "max_tokens": max_tokens,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": message}
+                ]
             },
             timeout=20
         )
@@ -65,8 +71,8 @@ def chat():
         return jsonify({"error": str(e)}), 500
 
     if not resp.ok:
-        return jsonify({"error": "Erreur API", "detail": resp.text}), 502
+        return jsonify({"error": "Erreur Together AI", "detail": resp.text}), 502
 
     result = resp.json()
-    reply = result["content"][0]["text"]
+    reply = result["choices"][0]["message"]["content"]
     return jsonify({"response": reply})

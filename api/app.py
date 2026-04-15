@@ -90,9 +90,8 @@ def chat():
                 print("[WARN] Format de réponse inattendu :", result)
                 reply = "Je rencontre un souci temporaire 🙂"
 
-    except requests.exceptions.HTTPError as e:
-        reply = f"DEBUG MODEL={LLM_MODEL} | HTTP={response.status_code} | BODY={response.text[:500]}"
-        
+    except Exception as e:
+        reply = f"DEBUG MODEL={LLM_MODEL} | ERROR={str(e)}"
     except requests.exceptions.Timeout:
         print("[ERREUR] Timeout Together AI")
         reply = "L'IA met trop de temps à répondre. Réessayez 🙂"

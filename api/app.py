@@ -72,7 +72,8 @@ def chat():
             },
             timeout=30,
         )
-
+        print("[DEBUG] MODEL:", LLM_MODEL)
+        print("[DEBUG] TOGETHER BODY:", response.text[:500])
         # ✅ Log du statut HTTP pour debug
         print(f"[DEBUG] Together status: {response.status_code}")
 

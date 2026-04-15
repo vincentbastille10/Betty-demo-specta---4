@@ -1,5 +1,4 @@
 from flask import Flask, request, jsonify
-from flask import send_file
 
 app = Flask(__name__)
 
@@ -89,9 +88,4 @@ def chat():
         "response": "Betty transforme vos visiteurs en clients automatiquement.\n\n👉 Essayez gratuitement : https://mybetty.online/inscription"
     })
 
-
-
-@app.route("/")
-def serve_ui():
-    return send_file("chat.html")
 

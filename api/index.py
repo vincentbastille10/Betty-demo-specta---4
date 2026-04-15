@@ -89,7 +89,4 @@ def chat():
     })
 
 
-# ===== ROOT DEBUG =====
-@app.route("/")
-def home():
-    return "BETTY DEMO RUNNING"
+

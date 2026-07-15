@@ -33,15 +33,15 @@
     }
 
     .avatar-wrap img {
-      width: 160px;
-      height: 160px;
+      width: 320px;
+      height: 320px;
       object-fit: cover;
-      border-radius: 8px;
+      border-radius: 0;
       display: block;
     }
 
     .messages {
-      height: 260px;
+      height: 400px;
       overflow-y: auto;
       margin-bottom: 10px;
       padding-right: 4px;
@@ -50,20 +50,19 @@
     .msg {
       margin: 8px 0;
       line-height: 1.4;
-      font-size: 15px;
+      font-size: 18px;
       word-wrap: break-word;
       white-space: pre-wrap;
     }
 
-    .msg a {
-      display: inline-block;
-      margin-top: 6px;
-      color: #a78bfa;
-      text-decoration: underline;
-    }
-
     .user { text-align: right; color: #ffffff; }
     .bot  { text-align: left;  color: #a78bfa; }
+
+    .msg a {
+      color: #facc15;
+      font-weight: 800;
+      text-decoration: underline;
+    }
 
     .footer {
       display: flex;
@@ -97,11 +96,11 @@
     }
 
     @media (max-width: 768px) {
-      body { padding: 10px; }
+      body { padding: 16px; }
       .chat { width: 100%; }
-      .avatar-wrap img { width: 120px; height: 120px; }
-      .messages { height: 220px; }
-      .msg { font-size: 14px; }
+      .avatar-wrap img { width: 220px; height: 220px; }
+      .messages { height: 320px; }
+      .msg { font-size: 16px; }
     }
   </style>
 </head>
@@ -113,7 +112,7 @@
     </div>
 
     <div id="messages" class="messages">
-      <div class="msg bot">Bonjour 🙂 Dites-moi ce que vous cherchez.</div>
+      <div class="msg bot">Bonjour 🙂 Pour rendre cette démonstration utile, quel est votre métier ou votre activité ?</div>
     </div>
 
     <div class="footer">
@@ -125,14 +124,27 @@
   </div>
 
   <script>
-    // Historique de la conversation pour le contexte multi-tours
-    const history = [];
+    const opening = "Bonjour 🙂 Pour rendre cette démonstration utile, quel est votre métier ou votre activité ?";
+    const history = [{ role: "assistant", content: opening }];
+    const OFFLINE_PROMPTS = [
+      "Quel est votre métier ou votre activité ?",
+      "Qu'aimeriez-vous que Betty qualifie ou récupère sur votre site : demandes de devis, rendez-vous, inscriptions, ventes ou autre chose ?",
+      "Quel critère serait le plus utile pour qualifier ces demandes : la ville, la prestation, le budget, le délai ou l'urgence ?",
+      "Parfait — j'ai maintenant assez de contexte pour montrer la valeur de Betty. Quel est votre prénom ?",
+      "Merci. Quelle est votre préférence pour recevoir les informations d'activation : email ou mobile ?",
+      "Voici le résumé qualifié que le professionnel recevrait : activité, besoin, critère utile et contact. C'est exactement ce que Betty peut produire sur votre site."
+    ];
+    let offlineStep = 0;
 
-    function formatMessage(text) {
-      const escaped = text
+    function escapeHtml(text) {
+      return String(text || "")
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;");
+    }
+
+    function formatMessage(text) {
+      const escaped = escapeHtml(text);
       return escaped.replace(/(https?:\/\/[^\s<]+)/g, url => {
         const clean = url.replace(/[>.,)&]+$/, "");
         return `<a href="${clean}" target="_blank" rel="noopener">${clean}</a>`;
@@ -144,14 +156,11 @@
       const messages = document.getElementById("messages");
       const status   = document.getElementById("status");
 
-      const message = input.value.trim();
-      if (!message) return;
+      const text = input.value.trim();
+      if (!text) return;
 
-      // Affiche le message utilisateur
-      messages.innerHTML += `<div class="msg user">${formatMessage(message)}</div>`;
+      messages.innerHTML += `<div class="msg user">${escapeHtml(text)}</div>`;
       input.value = "";
-      input.disabled = true;
-      document.getElementById("send").disabled = true;
       status.textContent = "Betty réfléchit…";
       messages.scrollTop = messages.scrollHeight;
 
@@ -159,7 +168,7 @@
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message, history })
+          body: JSON.stringify({ message: text, history })
         });
 
         const raw = await res.text();
@@ -167,33 +176,25 @@
         try { data = JSON.parse(raw); }
         catch { throw new Error("Réponse non JSON : " + raw); }
 
-        if (!res.ok) throw new Error(data.error || data.detail || "Erreur " + res.status);
+        if (!res.ok) throw new Error(data.response || "Erreur serveur");
 
-        const reply = data.response || "";
-
-        // Ajoute à l'historique
-        history.push({ role: "user",      content: message });
-        history.push({ role: "assistant", content: reply   });
-
-        // Affiche la réponse
+        const reply = String(data.response || "").trim();
+        if (!reply) throw new Error("empty");
+        history.push({ role: "user", content: text });
+        history.push({ role: "assistant", content: reply });
         messages.innerHTML += `<div class="msg bot">${formatMessage(reply)}</div>`;
-
-        // Indicateur discret si lead capté
-        if (data.lead_captured) {
-          status.textContent = "✅ Vos coordonnées ont bien été transmises.";
-        } else {
-          status.textContent = "";
-        }
+        status.textContent = "";
+        offlineStep = 0;
 
       } catch (e) {
-        console.error("Erreur chat :", e);
-        messages.innerHTML += `<div class="msg bot">Petit souci technique… réessayez dans un instant.</div>`;
-        status.textContent = String(e.message || e);
+        const reply = OFFLINE_PROMPTS[Math.min(offlineStep, OFFLINE_PROMPTS.length - 1)];
+        offlineStep++;
+        history.push({ role: "user", content: text });
+        history.push({ role: "assistant", content: reply });
+        messages.innerHTML += `<div class="msg bot">${formatMessage(reply)}</div>`;
+        status.textContent = "";
       }
 
-      input.disabled = false;
-      document.getElementById("send").disabled = false;
-      input.focus();
       messages.scrollTop = messages.scrollHeight;
     }
 

@@ -1,208 +1,327 @@
 from flask import Flask, request, jsonify
-import yaml, os, requests, traceback, re
+import os
+import re
+import requests
+import yaml
+
+# ─── Chemins ───────────────────────────────────────────────────────
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+YAML_PATH = os.path.join(BASE_DIR, "pack", "betty_spectra.yaml")
 
 app = Flask(__name__)
 
-PACK_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "pack", "betty_spectra.yaml"
+# Together est désactivé par défaut pour maîtriser les coûts.
+# Pour l'activer volontairement dans Vercel : DEMO_LLM_ENABLED=1.
+DEMO_LLM_ENABLED = os.environ.get("DEMO_LLM_ENABLED", "0").strip().lower() in (
+    "1", "true", "yes", "on"
 )
-LEAD_EMAIL = "spectramediabots@gmail.com"
+TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY", "").strip()
+TOGETHER_API_URL = "https://api.together.xyz/v1/chat/completions"
+LLM_MODEL = os.environ.get(
+    "LLM_MODEL", "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+)
+LEAD_EMAIL = os.environ.get("LEAD_EMAIL", "spectramediabots@gmail.com")
+SIGNUP_LINK = os.environ.get("SIGNUP_LINK", "https://mybetty.online/")
 
-def load_pack():
-    with open(PACK_PATH, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+DEFAULT_PROMPT = (
+    "Tu es Betty, une réceptionniste virtuelle chaleureuse. "
+    "Tu qualifies le besoin du visiteur avant de demander son prénom puis "
+    "un seul moyen de contact. Une seule question courte à la fois."
+)
 
-def extract_lead(text):
-    """Détecte le marqueur CAPTURE: name=[...] email=[...] phone=[...]"""
-    match = re.search(
-        r'CAPTURE:\s*name=\[([^\]]*)\]\s*email=\[([^\]]*)\]\s*phone=\[([^\]]*)\]',
-        text, re.IGNORECASE
+EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", re.I)
+PHONE_RE = re.compile(r"(?<!\w)(?:\+?\d[\s().-]*){8,15}(?!\w)")
+GREETINGS = {
+    "bonjour", "bonsoir", "salut", "hello", "hi", "hey", "coucou",
+    "bonjour betty", "salut betty",
+}
+
+
+def load_prompt():
+    try:
+        with open(YAML_PATH, "r", encoding="utf-8") as f:
+            return (yaml.safe_load(f) or {}).get("prompt", "").strip() or DEFAULT_PROMPT
+    except Exception:
+        return DEFAULT_PROMPT
+
+
+def norm(value):
+    return re.sub(r"\s+", " ", str(value or "").strip().lower())
+
+
+def is_greeting(value):
+    cleaned = re.sub(r"[!?.…]+", "", norm(value)).strip()
+    return cleaned in GREETINGS
+
+
+def find_email(value):
+    match = EMAIL_RE.search(str(value or ""))
+    return match.group(0) if match else ""
+
+
+def find_phone(value):
+    for match in PHONE_RE.finditer(str(value or "")):
+        candidate = match.group(0).strip()
+        digits = re.sub(r"\D", "", candidate)
+        if 8 <= len(digits) <= 15:
+            return candidate
+    return ""
+
+
+def find_name(value):
+    text = str(value or "").strip()
+    patterns = (
+        r"(?:je m'appelle|moi c'est|mon prénom est)\s+([A-Za-zÀ-ÿ'’-]{2,})",
+        r"(?:i am|i'm|my name is)\s+([A-Za-zÀ-ÿ'’-]{2,})",
     )
-    if match:
-        return {
-            "name":  match.group(1).strip(),
-            "email": match.group(2).strip(),
-            "phone": match.group(3).strip()
-        }
+    for pattern in patterns:
+        match = re.search(pattern, text, re.I)
+        if match:
+            return match.group(1).capitalize()
+    return ""
+
+
+def bare_name(value):
+    if find_email(value) or find_phone(value):
+        return ""
+    words = re.findall(r"[A-Za-zÀ-ÿ'’-]+", str(value or ""))
+    if 1 <= len(words) <= 2:
+        candidate = words[0]
+        if norm(candidate) not in GREETINGS and len(candidate) >= 2:
+            return candidate.capitalize()
+    return ""
+
+
+def detect_ask(value):
+    text = norm(value)
+    if "prénom" in text or "comment vous appelez" in text:
+        return "name"
+    if ("email" in text and "mobile" in text) or "moyen de contact" in text:
+        return "contact"
+    if "métier" in text or "votre activité" in text or "secteur d'activité" in text:
+        return "activity"
+    if (
+        "aimeriez-vous que betty" in text
+        or "que doit betty qualifier" in text
+        or "qualifier ou récupérer" in text
+        or "qualifier ou capturer" in text
+    ):
+        return "need"
+    if "quel critère" in text or "détail le plus utile" in text:
+        return "qualifier"
     return None
 
-def send_lead_email(lead):
-    """Envoie le lead par email via Mailjet."""
-    mj_public  = os.environ.get("MJ_APIKEY_PUBLIC", "")
-    mj_private = os.environ.get("MJ_APIKEY_PRIVATE", "")
-    if not mj_public or not mj_private:
-        return False, "clés Mailjet manquantes"
+
+def rebuild_state(history, message):
+    state = {
+        "activity": "",
+        "need": "",
+        "qualifier": "",
+        "name": "",
+        "email": "",
+        "phone": "",
+    }
+    sequence = [
+        (item.get("role"), item.get("content", "") or "")
+        for item in history
+        if isinstance(item, dict) and item.get("role") in ("user", "assistant")
+    ]
+    if message:
+        sequence.append(("user", message))
+
+    last_ask = None
+    for role, content in sequence:
+        if role == "assistant":
+            last_ask = detect_ask(content)
+            continue
+
+        if not state["email"]:
+            state["email"] = find_email(content)
+        if not state["phone"]:
+            state["phone"] = find_phone(content)
+        if not state["name"]:
+            state["name"] = find_name(content)
+
+        if last_ask and not is_greeting(content):
+            value = str(content or "").strip()
+            if last_ask == "activity" and not state["activity"]:
+                state["activity"] = value[:100]
+            elif last_ask == "need" and not state["need"]:
+                state["need"] = value[:160]
+            elif last_ask == "qualifier" and not state["qualifier"]:
+                state["qualifier"] = value[:160]
+            elif last_ask == "name" and not state["name"]:
+                state["name"] = bare_name(value)
+        last_ask = None
+
+    return state
+
+
+def fallback_reply(state):
+    if not state["activity"]:
+        return "Bonjour 🙂 Pour rendre cette démonstration utile, quel est votre métier ou votre activité ?"
+    if not state["need"]:
+        return (
+            "Très bien. Qu’aimeriez-vous que Betty qualifie ou récupère sur votre site : "
+            "demandes de devis, rendez-vous, inscriptions, ventes ou autre chose ?"
+        )
+    if not state["qualifier"]:
+        return (
+            "Quel critère serait le plus utile pour qualifier ces demandes : "
+            "la ville, la prestation, le budget, le délai ou l’urgence ?"
+        )
+    if not state["name"]:
+        return (
+            "Parfait — j’ai maintenant assez de contexte pour montrer la valeur de Betty. "
+            "Quel est votre prénom ?"
+        )
+    if not state["email"] and not state["phone"]:
+        return (
+            f"Merci, {state['name']}. Quel moyen préférez-vous pour recevoir les "
+            "informations d’activation : votre email ou votre mobile ?"
+        )
+
+    contact = state["email"] or state["phone"]
+    return (
+        f"Parfait, {state['name']} ! Voici le résumé qualifié que le professionnel recevrait :\n"
+        f"• Activité : {state['activity']}\n"
+        f"• Besoin : {state['need']}\n"
+        f"• Critère utile : {state['qualifier']}\n"
+        f"• Contact : {contact}\n\n"
+        "C’est ainsi que Betty transforme un visiteur anonyme en prospect prêt à rappeler, 24 h/24.\n"
+        f"{SIGNUP_LINK}"
+    )
+
+
+def call_together(history, message):
+    if not DEMO_LLM_ENABLED or not TOGETHER_API_KEY:
+        return None
+
+    messages = [{"role": "system", "content": load_prompt()}]
+    for item in history[-12:]:
+        if (
+            isinstance(item, dict)
+            and item.get("role") in ("user", "assistant")
+            and item.get("content")
+        ):
+            messages.append({
+                "role": item["role"],
+                "content": str(item["content"])[:1500],
+            })
+    messages.append({"role": "user", "content": message})
+
+    try:
+        response = requests.post(
+            TOGETHER_API_URL,
+            headers={
+                "Authorization": f"Bearer {TOGETHER_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": LLM_MODEL,
+                "messages": messages,
+                "temperature": 0.55,
+                "max_tokens": 220,
+            },
+            timeout=15,
+        )
+        if not response.ok:
+            app.logger.warning("Together HTTP %s", response.status_code)
+            return None
+        reply = (
+            (response.json().get("choices") or [{}])[0]
+            .get("message", {})
+            .get("content", "")
+            .strip()
+        )
+        if reply and not re.search(
+            r"erreur|error|together|api key|crédit|credit|traceback|exception",
+            reply,
+            re.I,
+        ):
+            return reply
+    except Exception as exc:
+        app.logger.warning("Together indisponible: %s", type(exc).__name__)
+    return None
+
+
+def send_lead_email(state):
+    public_key = os.environ.get("MJ_APIKEY_PUBLIC", "")
+    private_key = os.environ.get("MJ_APIKEY_PRIVATE", "")
+    if not public_key or not private_key:
+        return False
 
     body = (
-        f"🎯 Nouveau lead capté par Betty Demo\n\n"
-        f"Prénom   : {lead.get('name')  or '-'}\n"
-        f"Email    : {lead.get('email') or '-'}\n"
-        f"Téléphone: {lead.get('phone') or '-'}\n\n"
-        f"---\nCapté via betty-demo-specta-4.vercel.app"
+        "🎯 Nouveau prospect Betty (démo FR)\n\n"
+        f"Prénom   : {state.get('name') or '-'}\n"
+        f"Email    : {state.get('email') or '-'}\n"
+        f"Mobile   : {state.get('phone') or '-'}\n"
+        f"Activité : {state.get('activity') or '-'}\n"
+        f"Besoin   : {state.get('need') or '-'}\n"
+        f"Critère  : {state.get('qualifier') or '-'}\n"
     )
     try:
-        resp = requests.post(
+        response = requests.post(
             "https://api.mailjet.com/v3.1/send",
-            auth=(mj_public, mj_private),
-            json={
-                "Messages": [{
-                    "From": {"Email": LEAD_EMAIL, "Name": "Betty Demo"},
-                    "To":   [{"Email": LEAD_EMAIL, "Name": "Spectra Media"}],
-                    "Subject": f"🎯 Lead Betty : {lead.get('name') or 'Nouveau contact'}",
-                    "TextPart": body
-                }]
-            },
-            timeout=10
+            auth=(public_key, private_key),
+            json={"Messages": [{
+                "From": {"Email": LEAD_EMAIL, "Name": "Betty Démo FR"},
+                "To": [{"Email": LEAD_EMAIL}],
+                "Subject": f"🎯 Prospect Betty FR : {state.get('name') or 'nouveau contact'}",
+                "TextPart": body,
+            }]},
+            timeout=10,
         )
-        return resp.ok, resp.text
-    except Exception as e:
-        return False, str(e)
+        return bool(response.ok)
+    except Exception:
+        return False
 
 
 @app.route("/api/test")
 def test():
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "fallback_default": not DEMO_LLM_ENABLED})
 
 
-@app.route("/api/debug")
-def debug():
-    return jsonify({
-        "pack_exists": os.path.exists(PACK_PATH),
-        "api_key_set": bool(os.environ.get("TOGETHER_API_KEY")),
-        "mj_set":      bool(os.environ.get("MJ_APIKEY_PUBLIC")),
-        "model":       os.environ.get("LLM_MODEL", "(non défini)"),
-        "max_tokens":  os.environ.get("LLM_MAX_TOKENS", "(non défini)"),
-    })
-
-
-@app.route("/api/chat-test")
-def chat_test():
-    try:
-        pack = load_pack()
-        system_prompt = pack.get("prompt", "")[:100]
-    except Exception as e:
-        return jsonify({"step": "load_pack", "error": str(e)}), 500
-
-    api_key    = os.environ.get("TOGETHER_API_KEY", "")
-    model      = os.environ.get("LLM_MODEL", "mistralai/Mistral-7B-Instruct-v0.3")
-    max_tokens = int(os.environ.get("LLM_MAX_TOKENS", "200"))
-
-    if not api_key:
-        return jsonify({"step": "api_key", "error": "TOGETHER_API_KEY manquante"}), 500
-
-    try:
-        resp = requests.post(
-            "https://api.together.xyz/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={
-                "model": model,
-                "max_tokens": max_tokens,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": "Dis juste OK pour confirmer."}
-                ]
-            },
-            timeout=25
-        )
-    except Exception as e:
-        return jsonify({"step": "http_call", "error": str(e)}), 500
-
-    if not resp.ok:
-        return jsonify({"step": "together_error", "status": resp.status_code, "detail": resp.text}), 502
-
-    try:
-        result = resp.json()
-        reply  = result["choices"][0]["message"]["content"]
-        return jsonify({"ok": True, "reply": reply, "model": model})
-    except Exception as e:
-        return jsonify({"step": "parse", "error": str(e), "raw": resp.text[:500]}), 500
+@app.route("/healthz")
+def healthz():
+    return "ok", 200
 
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
     try:
-        data    = request.get_json(silent=True) or {}
-        message = data.get("message", "").strip()
-        history = data.get("history", [])   # [{role, content}, ...]
+        data = request.get_json(silent=True) or {}
+        message = str(data.get("message") or "").strip()
+        history = data.get("history") or []
+        if not isinstance(history, list):
+            history = []
 
         if not message:
-            return jsonify({"error": "message requis"}), 400
-
-        # --- chargement prompt système ---
-        try:
-            pack          = load_pack()
-            system_prompt = pack.get("prompt", "")
-        except Exception as e:
-            return jsonify({"error": "Impossible de lire le pack YAML", "detail": str(e)}), 500
-
-        api_key    = os.environ.get("TOGETHER_API_KEY", "")
-        model      = os.environ.get("LLM_MODEL", "mistralai/Mistral-7B-Instruct-v0.3")
-        max_tokens = int(os.environ.get("LLM_MAX_TOKENS", "200"))
-
-        if not api_key:
-            return jsonify({"error": "TOGETHER_API_KEY manquante"}), 500
-
-        # --- construction des messages avec historique ---
-        messages = [{"role": "system", "content": system_prompt}]
-        for msg in history[-12:]:   # max 12 messages d'historique
-            role    = msg.get("role", "user")
-            content = msg.get("content", "")
-            if role in ("user", "assistant") and content:
-                messages.append({"role": role, "content": content})
-        messages.append({"role": "user", "content": message})
-
-        # --- appel Together AI ---
-        try:
-            resp = requests.post(
-                "https://api.together.xyz/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type":  "application/json"
-                },
-                json={
-                    "model":      model,
-                    "max_tokens": max_tokens,
-                    "messages":   messages
-                },
-                timeout=25
-            )
-        except requests.exceptions.Timeout:
-            return jsonify({"error": "Timeout Together AI (>25s)"}), 504
-        except Exception as e:
-            return jsonify({"error": "Erreur réseau", "detail": str(e)}), 500
-
-        if not resp.ok:
             return jsonify({
-                "error":  "Together AI a retourné une erreur",
-                "status": resp.status_code,
-                "detail": resp.text
-            }), 502
+                "response": "Bonjour 🙂 Pour rendre cette démonstration utile, quel est votre métier ou votre activité ?",
+                "lead_captured": False,
+            })
 
-        # --- parsing réponse ---
-        try:
-            result     = resp.json()
-            raw_reply  = result["choices"][0]["message"]["content"]
-        except Exception as e:
-            return jsonify({"error": "Impossible de parser la réponse", "detail": str(e)}), 500
+        before = rebuild_state(history, "")
+        state = rebuild_state(history, message)
+        reply = call_together(history, message) or fallback_reply(state)
 
-        # --- détection lead + envoi email ---
-        lead          = extract_lead(raw_reply)
-        clean_reply   = re.sub(r'\nCAPTURE:.*', '', raw_reply, flags=re.IGNORECASE | re.DOTALL).strip()
-        lead_captured = False
-
-        if lead and (lead.get("email") or lead.get("phone")):
-            ok, _ = send_lead_email(lead)
-            lead_captured = ok
+        had_contact = bool(before["email"] or before["phone"])
+        has_contact = bool(state["email"] or state["phone"])
+        lead_captured = send_lead_email(state) if has_contact and not had_contact else False
 
         return jsonify({
-            "response":      clean_reply,
-            "lead_captured": lead_captured
+            "response": reply,
+            "lead_captured": lead_captured,
+            "qualified": has_contact,
+        })
+    except Exception as exc:
+        app.logger.warning("Erreur chat: %s", type(exc).__name__)
+        return jsonify({
+            "response": "Bonjour 🙂 Pour commencer, quel est votre métier ou votre activité ?",
+            "lead_captured": False,
         })
 
-    except Exception as e:
-        return jsonify({
-            "error":     "Erreur interne",
-            "detail":    str(e),
-            "traceback": traceback.format_exc()
-        }), 500
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)
